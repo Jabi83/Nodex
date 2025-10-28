@@ -163,7 +163,7 @@ services:
 </div>
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/azavaxhuman/Nodex/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
+curl -sSL https://raw.githubusercontent.com/Jabi83/Nodex/refs/heads/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
 ```
 
 #### پس از اجرا شما هر بار میتوانید با دستور dds-nodex منو را فراخوانی کنید.
