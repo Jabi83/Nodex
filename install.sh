@@ -116,6 +116,30 @@ install_deps(){
   fi
 }
 
+ensure_docker(){
+
+  detect_compose
+
+  if ! command -v docker &>/dev/null; then
+
+    $SKIP_DOCKER_INSTALL && fatal "Docker not found and auto-install disabled."
+
+    fatal "Docker is not installed. Please install it manually before running this script."
+
+  fi
+
+  detect_compose
+
+  if ((${#COMPOSE_CMD[@]}==0)); then
+
+    fatal "Docker Compose plugin is not installed. Please install it manually."
+
+  fi
+
+  ok "Docker/Compose ready."
+
+}
+
 create_user_group(){
   # MODIFIED: This function no longer creates a system user/group.
   # It will use the current user's UID/GID for file ownership.
