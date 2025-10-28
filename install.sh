@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # DDS-Nodex Manager (EN + Better UX) — final, IFS-safe, pretty menu + .env editor
+# MODIFIED: Paths moved to /home/cloudsigma/ and root requirement removed.
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-# ==================== Defaults ====================
+# ==================== Defaults (Modified for /home/cloudsigma/) ====================
 readonly ZIP_URL_DEFAULT="${ZIP_URL:-https://github.com/azavaxhuman/Nodex/releases/download/v1.4/v1.4.zip}"
-readonly APP_HOME_DEFAULT="${APP_HOME:-/opt/dds-nodex}"
-readonly DATA_DIR_DEFAULT="${DATA_DIR:-/var/lib/dds-nodex/data}"
-readonly CONFIG_DIR_DEFAULT="${CONFIG_DIR:-/var/lib/dds-nodex/config}"
-readonly UID_APP_DEFAULT="${UID_APP:-10001}"
-readonly GID_APP_DEFAULT="${GID_APP:-10001}"
-readonly BIN_PATH_DEFAULT="${BIN_PATH:-/usr/local/bin/dds-nodex}"
+readonly APP_HOME_DEFAULT="${APP_HOME:-/home/cloudsigma/dds-nodex}"
+readonly DATA_DIR_DEFAULT="${DATA_DIR:-/home/cloudsigma/dds-nodex/data}"
+readonly CONFIG_DIR_DEFAULT="${CONFIG_DIR:-/home/cloudsigma/dds-nodex/config}"
+# UID/GID are now set to the current user since root is not used.
+readonly UID_APP_DEFAULT="" # Set dynamically below
+readonly GID_APP_DEFAULT="" # Set dynamically below
+# Binary path moved to user's home. Make sure /home/cloudsigma/bin is in your $PATH
+readonly BIN_PATH_DEFAULT="${BIN_PATH:-/home/cloudsigma/bin/dds-nodex}"
 
 COMPOSE_FILES=("docker-compose.yml" "compose.yml" "compose.yaml")
 
@@ -19,8 +22,9 @@ ZIP_URL="$ZIP_URL_DEFAULT"
 APP_HOME="$APP_HOME_DEFAULT"
 DATA_DIR="$DATA_DIR_DEFAULT"
 CONFIG_DIR="$CONFIG_DIR_DEFAULT"
-UID_APP="$UID_APP_DEFAULT"
-GID_APP="$GID_APP_DEFAULT"
+# Set UID/GID to the current user, as root privileges are not assumed.
+UID_APP="${UID_APP:-$(id -u)}"
+GID_APP="${GID_APP:-$(id -g)}"
 BIN_PATH="$BIN_PATH_DEFAULT"
 REQUIRED_FILES=("Dockerfile" "requirements.txt")
 NONINTERACTIVE=false
@@ -52,7 +56,12 @@ trap cleanup EXIT
 trap on_err ERR
 
 # ==================== Core ====================
-require_root(){ [[ "$(id -u)" -eq 0 ]] || fatal "Run as root (sudo)."; }
+require_root(){
+  # MODIFIED: This check is disabled.
+  # The original script would exit if not run as root.
+  # NOTE: Without root, you must manually install dependencies like Docker, curl, etc.
+  true
+}
 
 detect_compose(){
   if command -v docker &>/dev/null && docker compose version &>/dev/null; then
@@ -67,7 +76,7 @@ detect_compose(){
 need_compose(){
   if ((${#COMPOSE_CMD[@]}==0)); then
     detect_compose
-    ((${#COMPOSE_CMD[@]}==0)) && fatal "Docker Compose not available."
+    ((${#COMPOSE_CMD[@]}==0)) && fatal "Docker Compose not available. Please install it manually."
   fi
 }
 
@@ -76,10 +85,9 @@ install_deps(){
   local miss=()
   for d in "${deps[@]}"; do command -v "$d" &>/dev/null || miss+=("$d"); done
   if ((${#miss[@]})); then
-    step "Installing dependencies: ${miss[*]}"
-    apt-get update -y
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "${miss[@]}"
-    ok "Dependencies installed."
+    # MODIFIED: Cannot auto-install without root.
+    warn "Missing dependencies: ${miss[*]}. Please install them manually."
+    fatal "Dependency installation failed."
   else ok "All dependencies present."; fi
 }
 
@@ -87,47 +95,28 @@ ensure_docker(){
   detect_compose
   if ! command -v docker &>/dev/null; then
     $SKIP_DOCKER_INSTALL && fatal "Docker not found and auto-install disabled."
-    step "Installing Docker…"; curl -fsSL https://get.docker.com | sh; ok "Docker installed."
+    # MODIFIED: Cannot auto-install without root.
+    fatal "Docker is not installed. Please install it manually before running this script."
   fi
   detect_compose
   if ((${#COMPOSE_CMD[@]}==0)); then
-    step "Installing Docker Compose plugin…"
-    apt-get update -y || true; apt-get install -y docker-compose-plugin || true
-    detect_compose
-    ((${#COMPOSE_CMD[@]}==0)) && fatal "Docker Compose not available."
+    # MODIFIED: Cannot auto-install without root.
+    fatal "Docker Compose plugin is not installed. Please install it manually."
   fi
   ok "Docker/Compose ready."
 }
 
 create_user_group(){
-  # group by GID
-  local grp_name
-  if getent group | awk -F: -v gid="$GID_APP" '$3==gid{found=1; print $1; exit} END{exit !found}'; then
-    grp_name="$(getent group | awk -F: -v gid="$GID_APP" '$3==gid{print $1; exit}')"
-    ok "Group with GID ${GID_APP} exists: ${grp_name}"
-  else
-    grp_name="appgrp"
-    groupadd -g "${GID_APP}" "${grp_name}"
-    ok "Group ${grp_name} created (GID ${GID_APP})."
-  fi
-
-  # user by UID
-  local usr_name
-  if getent passwd | awk -F: -v uid="$UID_APP" '$3==uid{found=1; print $1; exit} END{exit !found}'; then
-    usr_name="$(getent passwd | awk -F: -v uid="$UID_APP" '$3==uid{print $1; exit}')"
-    ok "User with UID ${UID_APP} exists: ${usr_name}"
-  else
-    usr_name="appusr"
-    useradd -u "${UID_APP}" -g "${GID_APP}" -M -s /usr/sbin/nologin "${usr_name}"
-    ok "User ${usr_name} created (UID ${UID_APP})."
-  fi
+  # MODIFIED: This function no longer creates a system user/group.
+  # It will use the current user's UID/GID for file ownership.
+  ok "Skipping user/group creation. Using current user (UID: ${UID_APP}, GID: ${GID_APP})."
 }
 
 create_dirs(){
   mkdir -p "${APP_HOME}" "${DATA_DIR}" "${CONFIG_DIR}"
+  # The chown should succeed as the directories are within the user's home.
   chown -R "${UID_APP}:${GID_APP}" "${DATA_DIR}" "${CONFIG_DIR}"
-  # If app writes to APP_HOME, uncomment:
-  # chown -R "${UID_APP}:${GID_APP}" "${APP_HOME}"
+  chown -R "${UID_APP}:${GID_APP}" "${APP_HOME}"
 }
 
 validate_files(){
@@ -170,7 +159,6 @@ download_extract(){
   rm -f "$tmp"
   ok "Unpacked."
 
-  # --- نکتهٔ مهم: اگر فقط یک دایرکتوری تاپ‌لول بود، محتواش رو به APP_HOME «پروموت» کن
   shopt -s nullglob dotglob
   local entries=("${APP_HOME}"/*)
   if (( ${#entries[@]} == 1 )) && [[ -d "${entries[0]}" ]]; then
@@ -203,7 +191,6 @@ backup_config(){
   ok "Config backup: ${cfg}.bak-${t}"
 }
 
-# ======== NEW: .env editor ========
 backup_env(){
   local envf="${APP_HOME}/.env"
   [[ -f "$envf" ]] || return 0
@@ -224,7 +211,6 @@ edit_env(){
   backup_env
   info "Opening with ${editor}…"; "$editor" "$envf"; ok ".env saved."
 }
-# =================================
 
 compose_build_up(){
   section "Docker Compose Deploy"
@@ -260,17 +246,8 @@ edit_config(){
 }
 
 safe_delete_principals(){
-  local u_entry g_entry u_uid g_gid
-  u_entry="$(getent passwd appusr || true)"
-  g_entry="$(getent group  appgrp || true)"
-  if [[ -n "$u_entry" ]]; then
-    u_uid="$(echo "$u_entry" | awk -F: '{print $3}')"
-    [[ "$u_uid" == "$UID_APP" ]] && userdel appusr || true
-  fi
-  if [[ -n "$g_entry" ]]; then
-    g_gid="$(echo "$g_entry" | awk -F: '{print $3}')"
-    [[ "$g_gid" == "$GID_APP" ]] && groupdel appgrp || true
-  fi
+  # MODIFIED: This function no longer deletes system users/groups.
+  ok "Skipping user/group deletion."
 }
 
 uninstall_stack(){
@@ -307,7 +284,8 @@ register_cmd(){
 exec "$script_path" "\$@"
 EOF
   chmod +x "$BIN_PATH"
-  ok "Command '$(basename "$BIN_PATH")' registered."
+  ok "Command '$(basename "$BIN_PATH")' registered in ${BIN_PATH}."
+  info "You may need to add '${bin_dir}' to your \$PATH to run it directly."
 }
 
 is_installed(){
@@ -325,11 +303,9 @@ quick_start(){
   else
     service_status
     show_logs 50
-    pause   # این خط را اضافه کنید
+    pause
   fi
 }
-
-
 
 # ==================== High-level ====================
 install_dds_nodex(){
@@ -355,7 +331,7 @@ install_dds_nodex(){
 # ==================== CLI (Flags) ====================
 print_help(){
   cat <<EOF
-DDS-Nodex Manager
+DDS-Nodex Manager (Modified for non-root execution)
 
 Usage:
   $(basename "$0")                  # Interactive menu (recommended)
@@ -377,7 +353,7 @@ Flags:
   --app-home=PATH       Install path (default: ${APP_HOME_DEFAULT})
   --data-dir=PATH
   --config-dir=PATH
-  --uid=ID --gid=ID     App UID/GID
+  --uid=ID --gid=ID     App UID/GID (defaults to current user)
   --non-interactive     No prompts/pauses
   --skip-docker-install Do not auto-install Docker
   -h, --help            Show help
