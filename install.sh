@@ -80,30 +80,40 @@ need_compose(){
   fi
 }
 
+# --- این کد اصلاح شده است ---
 install_deps(){
-  local deps=(curl unzip ca-certificates gnupg lsb-release)
-  local miss=()
-  for d in "${deps[@]}"; do command -v "$d" &>/dev/null || miss+=("$d"); done
-  if ((${#miss[@]})); then
-    # MODIFIED: Cannot auto-install without root.
-    warn "Missing dependencies: ${miss[*]}. Please install them manually."
-    fatal "Dependency installation failed."
-  else ok "All dependencies present."; fi
-}
+  # We check for the actual commands, not the package names.
+  local commands_to_check=(curl unzip gpg lsb_release)
+  local pkgs_to_install=(curl unzip gnupg lsb-release ca-certificates) # ca-certificates has no command
+  local miss_cmds=()
+  local miss_pkgs=()
 
-ensure_docker(){
-  detect_compose
-  if ! command -v docker &>/dev/null; then
-    $SKIP_DOCKER_INSTALL && fatal "Docker not found and auto-install disabled."
-    # MODIFIED: Cannot auto-install without root.
-    fatal "Docker is not installed. Please install it manually before running this script."
+  info "Checking for required command dependencies..."
+  for cmd in "${commands_to_check[@]}"; do
+    if ! command -v "$cmd" &>/dev/null; then
+      miss_cmds+=("$cmd")
+    fi
+  done
+
+  if ((${#miss_cmds[@]})); then
+    # Since we can't auto-install, we map commands back to package names for the error message.
+    # This is a simple mapping, might not be perfect for all cases but works here.
+    if [[ " ${miss_cmds[*]} " =~ "gpg" ]]; then miss_pkgs+=("gnupg"); fi
+    if [[ " ${miss_cmds[*]} " =~ "lsb_release" ]]; then miss_pkgs+=("lsb-release"); fi
+    if [[ " ${miss_cmds[*]} " =~ "curl" ]]; then miss_pkgs+=("curl"); fi
+    if [[ " ${miss_cmds[*]} " =~ "unzip" ]]; then miss_pkgs+=("unzip"); fi
+
+    # Also add ca-certificates if curl is missing, as it's a dependency.
+    if [[ " ${miss_cmds[*]} " =~ "curl" ]] && ! dpkg -s ca-certificates &>/dev/null; then
+        miss_pkgs+=("ca-certificates")
+    fi
+
+    warn "Missing dependencies detected. Corresponding packages might be: ${miss_pkgs[*]}."
+    warn "Please install them manually using 'sudo apt install -y ${pkgs_to_install[*]}'"
+    fatal "Dependency check failed."
+  else
+    ok "All command dependencies are present."
   fi
-  detect_compose
-  if ((${#COMPOSE_CMD[@]}==0)); then
-    # MODIFIED: Cannot auto-install without root.
-    fatal "Docker Compose plugin is not installed. Please install it manually."
-  fi
-  ok "Docker/Compose ready."
 }
 
 create_user_group(){
